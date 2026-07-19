@@ -20,7 +20,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: ./${{ matrix.service }}
-          load: true
+          load: false
           tags: shortlink-${{ matrix.service }}:ci
           sbom: true
           provenance: true
