@@ -1,0 +1,141 @@
+# Swarm deployment. Deploy with:
+#   REGISTRY=docker.io/yourname TAG=v1 docker stack deploy -c stack.yml shortlink
+#
+# Differences from compose.yaml:
+#   - images come from a registry (Swarm ignores `build:`)
+#   - the schema is injected as a Docker *config* (no bind mounts across nodes)
+#   - the DB password is an *external* Docker secret you create once
+#   - overlay networks span the cluster; `deploy:` controls replicas + updates
+version: "3.9"
+
+secrets:
+  postgres_password:
+    external: true
+
+configs:
+  pg_init:
+    file: ./db/init.sql
+
+networks:
+  edge:
+    driver: overlay
+  internal:
+    driver: overlay
+    internal: true
+
+volumes:
+  pgdata: {}
+
+services:
+  postgres:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_USER: shortlink
+      POSTGRES_DB: shortlink
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    configs:
+      - source: pg_init
+        target: /docker-entrypoint-initdb.d/init.sql
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shortlink -d shortlink"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      replicas: 1
+      placement:
+        # pin the single stateful service to the manager so its volume
+        # always lands on the same node (single-node friendly)
+        constraints: ["node.role == manager"]
+      resources:
+        limits: {cpus: "0.75", memory: 512M}
+      restart_policy: {condition: on-failure}
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      replicas: 1
+      resources:
+        limits: {cpus: "0.5", memory: 256M}
+      restart_policy: {condition: on-failure}
+
+  api:
+    image: ${REGISTRY}/shortlink-api:${TAG:-latest}
+    environment:
+      PGHOST: postgres
+      PGUSER: shortlink
+      PGDATABASE: shortlink
+      PGPASSWORD_FILE: /run/secrets/postgres_password
+      REDIS_URL: redis://redis:6379
+      ANALYTICS_URL: http://analytics:8000
+    secrets: [postgres_password]
+    networks: [edge, internal]
+    deploy:
+      replicas: 2
+      update_config: {parallelism: 1, delay: 10s, order: start-first, failure_action: rollback}
+      rollback_config: {parallelism: 1, delay: 5s}
+      restart_policy: {condition: on-failure, max_attempts: 3}
+      resources:
+        limits: {cpus: "0.5", memory: 256M}
+
+  redirect:
+    image: ${REGISTRY}/shortlink-redirect:${TAG:-latest}
+    environment:
+      PGHOST: postgres
+      PGUSER: shortlink
+      PGDATABASE: shortlink
+      PGPASSWORD_FILE: /run/secrets/postgres_password
+      REDIS_ADDR: redis:6379
+    secrets: [postgres_password]
+    networks: [edge, internal]
+    deploy:
+      replicas: 3
+      update_config: {parallelism: 1, delay: 5s, order: start-first, failure_action: rollback}
+      rollback_config: {parallelism: 1}
+      restart_policy: {condition: on-failure, max_attempts: 3}
+      resources:
+        limits: {cpus: "0.5", memory: 128M}
+
+  analytics:
+    # single replica on purpose: it's the sole consumer of the Redis click
+    # queue, so one worker keeps the aggregation exactly-once-ish and simple
+    image: ${REGISTRY}/shortlink-analytics:${TAG:-latest}
+    environment:
+      PGHOST: postgres
+      PGUSER: shortlink
+      PGDATABASE: shortlink
+      PGPASSWORD_FILE: /run/secrets/postgres_password
+      REDIS_URL: redis://redis:6379
+    secrets: [postgres_password]
+    networks: [internal]
+    deploy:
+      replicas: 1
+      restart_policy: {condition: on-failure}
+      resources:
+        limits: {cpus: "0.5", memory: 256M}
+
+  web:
+    image: ${REGISTRY}/shortlink-web:${TAG:-latest}
+    ports:
+      - target: 8080
+        published: 80
+        protocol: tcp
+        mode: ingress
+    networks: [edge]
+    deploy:
+      replicas: 2
+      update_config: {parallelism: 1, delay: 5s, order: start-first}
+      restart_policy: {condition: on-failure}
+      resources:
+        limits: {cpus: "0.25", memory: 64M}

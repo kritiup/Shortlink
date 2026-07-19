@@ -1,0 +1,114 @@
+# Local development stack. Run: docker compose up --build
+# One published port (web on 8080). Everything else talks over private networks.
+name: shortlink
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+
+networks:
+  edge: {}          # web <-> api/redirect, and the published port
+  internal:
+    internal: true  # data services get no route to the internet
+
+volumes:
+  pgdata: {}
+
+services:
+  postgres:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_USER: shortlink
+      POSTGRES_DB: shortlink
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shortlink -d shortlink"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  api:
+    build: ./api
+    image: shortlink-api:local
+    environment:
+      PGHOST: postgres
+      PGUSER: shortlink
+      PGDATABASE: shortlink
+      PGPASSWORD_FILE: /run/secrets/postgres_password
+      REDIS_URL: redis://redis:6379
+      ANALYTICS_URL: http://analytics:8000
+    secrets: [postgres_password]
+    networks: [edge, internal]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
+  redirect:
+    build: ./redirect
+    image: shortlink-redirect:local
+    environment:
+      PGHOST: postgres
+      PGUSER: shortlink
+      PGDATABASE: shortlink
+      PGPASSWORD_FILE: /run/secrets/postgres_password
+      REDIS_ADDR: redis:6379
+    secrets: [postgres_password]
+    networks: [edge, internal]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
+  analytics:
+    build: ./analytics
+    image: shortlink-analytics:local
+    environment:
+      PGHOST: postgres
+      PGUSER: shortlink
+      PGDATABASE: shortlink
+      PGPASSWORD_FILE: /run/secrets/postgres_password
+      REDIS_URL: redis://redis:6379
+    secrets: [postgres_password]
+    networks: [internal]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    image: shortlink-web:local
+    ports: ["8080:8080"]
+    networks: [edge]
+    depends_on: [api, redirect]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped

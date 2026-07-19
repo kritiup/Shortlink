@@ -1,0 +1,7 @@
+.env
+secrets/postgres_password.txt
+sboms/
+node_modules/
+dist/
+__pycache__/
+*.pyc
