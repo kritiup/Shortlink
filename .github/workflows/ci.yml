@@ -36,7 +36,7 @@ jobs:
   # Push only from main, and only if registry creds are configured as secrets.
   push:
     needs: build-scan
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     strategy:
       matrix:
