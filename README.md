@@ -4,8 +4,8 @@ This ties the whole module together. You'll take a small but real multi-service
 application, run it on your own machine with Compose, harden and scan the images,
 then deploy the exact same images to a single-node **Docker Swarm** cluster on AWS.
 
-The lesson underneath all of it: *the build–ship–run cycle is the same at every
-scale.* The commands you learned on Days 3–7 are the commands you use here — just
+The lesson underneath all of it: _the build–ship–run cycle is the same at every
+scale._ The commands you learned on Days 3–7 are the commands you use here — just
 pointed at more machines.
 
 Read each part, predict what a command will do, then run it and check.
@@ -83,7 +83,7 @@ shortlink/
 
 **1.1 — Create the database password (a secret, not an env var)**
 
-The DB password is delivered to every service as a Docker *secret* — a file
+The DB password is delivered to every service as a Docker _secret_ — a file
 mounted at `/run/secrets/postgres_password`, never baked into an image or printed
 in `docker inspect`. Create your local copy:
 
@@ -158,7 +158,7 @@ make nuke     # stop containers AND delete the data volume (fresh start)
 
 # Part 2 — The best practices, and where each one lives
 
-Everything below is already in the code. This section points at *where*, so you
+Everything below is already in the code. This section points at _where_, so you
 can read the real thing.
 
 **Multi-stage builds — build fat, ship thin.** Every service has a `build` stage
@@ -174,14 +174,14 @@ binary on `distroless/static`, with no compiler, no shell, and no package manage
 
 **Run as non-root, and drop everything you can.** No service runs as root:
 `api` uses the image's `node` user, `analytics` creates `appuser`, `redirect` uses
-distroless `nonroot`, and `web` uses the *unprivileged* nginx image (listening on
+distroless `nonroot`, and `web` uses the _unprivileged_ nginx image (listening on
 8080, not 80). In `compose.yaml` the app services also get `cap_drop: [ALL]`,
 `security_opt: [no-new-privileges:true]`, and `read_only: true` root filesystems
 (with a small `tmpfs` where a writable `/tmp` is needed).
 
 **Healthchecks.** Every image has a `HEALTHCHECK`, and Postgres/Redis have theirs
 in Compose so the app waits for readiness. Note the trick in the Go service: the
-distroless image has no shell, so its healthcheck re-runs the *same binary* with a
+distroless image has no shell, so its healthcheck re-runs the _same binary_ with a
 `-healthcheck` flag (`redirect/main.go`).
 
 **Network segmentation.** Two networks (see `compose.yaml`). `web`, `api`, and
@@ -213,7 +213,7 @@ This is the security gate you saw on Day 7, made concrete.
 **3.1 — CVE scan every image**
 
 ```bash
-make build                          # tag images for your registry first
+make builds                       # tag images for your registry first
 make scan                           # docker scout, or trivy if scout is absent
 ```
 
@@ -232,7 +232,7 @@ language dependency. It's what lets you answer "am I affected by the new
 make sbom                           # writes ./sboms/<image>.spdx.json  (needs syft)
 ```
 
-You can also attach an SBOM (and provenance) *at build time* with buildx — that's
+You can also attach an SBOM (and provenance) _at build time_ with buildx — that's
 what `scripts/build-and-push.sh` and the CI workflow do:
 
 ```bash
@@ -305,7 +305,7 @@ docker version                      # confirm the daemon is up
 **5.3 — Get the deploy files onto the instance**
 
 Swarm needs `stack.yml` and `db/init.sql` present on the node (the schema is
-injected as a Docker *config*). The images come from your registry, so you don't
+injected as a Docker _config_). The images come from your registry, so you don't
 copy any source. Clone your repo, or copy just those files:
 
 ```bash
