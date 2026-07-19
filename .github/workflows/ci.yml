@@ -20,10 +20,10 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: ./${{ matrix.service }}
-          load: false
+          load: true
           tags: shortlink-${{ matrix.service }}:ci
-          sbom: true
-          provenance: true
+          sbom: false
+          provenance: false
 
       - name: CVE gate (fail on fixable CRITICAL/HIGH)
         uses: aquasecurity/trivy-action@master
